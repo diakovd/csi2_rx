@@ -1,0 +1,20 @@
+ 
+1. csi2_rx.sv
+ line 200
+	original :  .wr_data_i       ( pkt_word_rx_clk           ),
+	corrected:  .wr_data_i       ( pkt_word_rx_clk.tdata     ),
+ 
+ 
+ line 206
+	original :  .rd_data_o       ( pkt_word_px_clk           ),
+	corrected:  .rd_data_o       ( pkt_word_px_clk.tdata     ),
+
+ line 215
+	original :   assign csi2_pkt_px_clk_if.tstrb  = pkt_word_px_clk.tstrb;
+	corrected:   assign csi2_pkt_px_clk_if.tstrb  = 4'b1111;//pkt_word_px_clk.tstrb;
+
+2. csi2_pkt_handler.sv
+
+ line 51
+	original :   if( pkt_i.tready )
+	corrected:   if( pkt_i.tvalid && pkt_i.tready )  

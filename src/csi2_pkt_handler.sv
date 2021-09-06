@@ -48,7 +48,7 @@ always_comb
         end
       IGNORE_CRC_S:
         begin
-          if( pkt_i.tready )
+          if(pkt_i.tvalid && pkt_i.tready )
             next_state = IDLE_S;
         end
     endcase

@@ -35,9 +35,7 @@ module csi2_rx #(
   output                             corr_header_err_o,
   output                             crc_err_o,
   // AXI4 Video Stream
-  axi4_stream_if.master              payload_40b_if,
-  output 							 frame_start_pkt,
-  output							 frame_end_pkt 	
+  axi4_stream_if.master              video_o
 );
 
 // Structure to pass over CDC
@@ -78,8 +76,8 @@ logic          corrected_phy_data_valid;
 // i.e. !valid
 logic          rx_px_cdc_empty;
 // Shor packet with frame start information detected
-// logic          frame_start_pkt;
-// logic          frame_end_pkt;
+logic          frame_start_pkt;
+logic          frame_end_pkt;
 
 logic [29:0] rgb10;
 logic [7:0]  gray8;
@@ -87,10 +85,6 @@ logic signed [7:0] dat;
 
 logic dat_valid;
 logic frame_valid;
-
-logic [3:0] digit;
-logic digit_valid;
-
 
 // rx_clk CDC data
 axi4_word_t    pkt_word_rx_clk;
@@ -114,6 +108,21 @@ axi4_stream_if #(
 axi4_stream_if #(
   .TDATA_WIDTH ( 32        )
 ) payload_if (
+  .aclk        ( px_clk_i  ),
+  .aresetn     ( !px_rst_i )
+);
+
+// 40 bit payload
+axi4_stream_if #(
+  .TDATA_WIDTH ( 40        )
+) payload_40b_if (
+  .aclk        ( px_clk_i  ),
+  .aresetn     ( !px_rst_i )
+);
+
+axi4_stream_if #(
+  .TDATA_WIDTH ( 16        )
+) intermittent_video (
   .aclk        ( px_clk_i  ),
   .aresetn     ( !px_rst_i )
 );
@@ -235,5 +244,87 @@ csi2_raw10_32b_40b_gbx gbx
   .pkt_i ( payload_if     ),
   .pkt_o ( payload_40b_if )
 );
+
+raw10toRGB raw10toRGB_inst
+(
+  .frame_start_i(frame_start_pkt), 
+  .frame_end_i(frame_end_pkt),
+	
+  .pkt_i(payload_40b_if),
+
+  .rgb10(rgb10),
+  .dat_valid(dat_valid),
+  .frame_valid(frame_valid),
+
+  .Rst(px_rst_i),
+  .Clk(px_clk_i)
+);
+
+ nn_28x28_pixl nn_28x28_pixl_inst(
+  .rgb10(rgb10),
+  .dat_valid(dat_valid),
+  .frame_start_pkt(frame_start_pkt),
+  .frame_end_pkt(frame_end_pkt),
+	
+  .Rst(px_rst_i),
+  .Clk(px_clk_i)
+ );
+
+ // nn nn_inst(
+	// .x(dat), 
+	// .x_valid(dat_valid),		
+	
+	// .Rst(px_rst_i),
+	// .Clk(px_clk_i)
+ // );
+
+// 40b to 10b serializer
+csi2_px_serializer px_ser
+(
+  .clk_i         ( px_clk_i           ),
+  .rst_i         ( px_rst_i           ),
+  .frame_start_i ( frame_start_pkt    ),
+  .pkt_i         ( payload_40b_if     ),
+  .pkt_o         ( intermittent_video )
+);
+
+
+
+generate
+  if( CONTINIOUS_VALID )
+    begin : output_smart_fifo
+      // Output smart-fifo to filter large false packets and to made packets
+      // continious
+      axi4_stream_fifo #(
+        .TDATA_WIDTH    ( 16                 ),
+        .WORDS_AMOUNT   ( 2048               ),
+        .SMART          ( 1                  ),
+        .SHOW_PKT_SIZE  ( 0                  )
+      ) filter_fifo (
+        .clk_i          ( px_clk_i           ),
+        .rst_i          ( px_rst_i           ),
+        .full_o         (                    ),
+        .empty_o        (                    ),
+        .drop_o         (                    ),
+        .used_words_o   (                    ),
+        .pkts_amount_o  (                    ),
+        .pkt_size_o     (                    ),
+        .pkt_i          ( intermittent_video ),
+        .pkt_o          ( video_o            )
+      );
+    end
+  else
+    begin : disconitinious_valid
+      assign video_o.tdata             = intermittent_video.tdata;
+      assign video_o.tvalid            = intermittent_video.tvalid;
+      assign video_o.tstrb             = intermittent_video.tstrb;
+      assign video_o.tkeep             = intermittent_video.tkeep;
+      assign video_o.tlast             = intermittent_video.tlast;
+      assign video_o.tdest             = intermittent_video.tdest;
+      assign video_o.tid               = intermittent_video.tid;
+      assign video_o.tuser             = intermittent_video.tuser;
+      assign intermittent_video.tready = video_o.tready;
+    end
+endgenerate
 
 endmodule
